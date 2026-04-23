@@ -8,8 +8,8 @@
   <meta name="theme-color" content="#080810">
   <title>Scanner — Control de Acceso</title>
 
-  <!-- jsQR para leer QR desde la cámara -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+  <!-- ZXing — mejor compatibilidad con iPhone Safari -->
+  <script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&family=JetBrains+Mono:wght@400;600&display=swap');
@@ -697,85 +697,59 @@
   });
 
   // ═══════════════════════════════════════════
-  // CÁMARA
+  // CÁMARA con ZXing — compatible con iPhone Safari
   // ═══════════════════════════════════════════
+  let codeReader = null;
+
   async function iniciarCamara() {
     try {
-      // Intentar primero con alta resolución y cámara trasera exacta
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { exact: 'environment' },
-            width:  { min: 640, ideal: 1920, max: 2560 },
-            height: { min: 480, ideal: 1080, max: 1440 }
-          }
-        });
-      } catch (e) {
-        // Fallback sin 'exact' — funciona en más dispositivos
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: 'environment',
-            width:  { ideal: 1280 },
-            height: { ideal: 720 }
-          }
-        });
-      }
+      codeReader = new ZXing.BrowserQRCodeReader();
+
+      // Obtener lista de cámaras y preferir la trasera
+      const dispositivos = await ZXing.BrowserCodeReader.listVideoInputDevices();
+      let deviceId = undefined;
+
+      // Buscar cámara trasera por nombre
+      const trasera = dispositivos.find(d =>
+        d.label.toLowerCase().includes('back') ||
+        d.label.toLowerCase().includes('rear') ||
+        d.label.toLowerCase().includes('trasera') ||
+        d.label.toLowerCase().includes('environment')
+      );
+      if (trasera) deviceId = trasera.deviceId;
 
       const video = document.getElementById('video');
-      video.srcObject = stream;
-      video.setAttribute('playsinline', 'true'); // crítico para iPhone en Safari
-      video.play();
-      video.addEventListener('loadedmetadata', () => {
-        requestAnimationFrame(escanearFrame);
+
+      await codeReader.decodeFromVideoDevice(deviceId, video, (result, err) => {
+        if (result) {
+          const codigo = result.getText().trim();
+          const ahora = Date.now();
+          const esDiferente = codigo !== lastScanned;
+          const hanPasado3s = (ahora - lastScannedTime) > 3000;
+
+          if (!isProcessing && codigo && (esDiferente || hanPasado3s)) {
+            lastScanned = codigo;
+            lastScannedTime = ahora;
+            procesarQR(codigo);
+          }
+        }
+        // err es normal cuando no hay QR en frame — no hacer nada
       });
+
     } catch (err) {
       alert('No se pudo acceder a la cámara.\n\nAsegúrate de permitir el acceso a la cámara cuando el navegador lo solicite.\n\nError: ' + err.message);
     }
   }
 
   function detenerCamara() {
+    if (codeReader) {
+      codeReader.reset();
+      codeReader = null;
+    }
     if (stream) {
       stream.getTracks().forEach(t => t.stop());
       stream = null;
     }
-  }
-
-  // ═══════════════════════════════════════════
-  // LOOP DE ESCANEO QR
-  // ═══════════════════════════════════════════
-  function escanearFrame() {
-    const video  = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-
-    if (!stream) return;
-
-    if (video.readyState === video.HAVE_ENOUGH_DATA) {
-      canvas.height = video.videoHeight;
-      canvas.width  = video.videoWidth;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-      // Intentar con ambas inversiones — mejora detección en iPhone
-      const code = jsQR(imageData.data, imageData.width, imageData.height, {
-        inversionAttempts: 'attemptBoth'
-      });
-
-      if (code && code.data && code.data.trim() !== '') {
-        const ahora = Date.now();
-        const esDiferente = code.data !== lastScanned;
-        const hanPasado3s = (ahora - lastScannedTime) > 3000;
-
-        if (!isProcessing && (esDiferente || hanPasado3s)) {
-          lastScanned = code.data;
-          lastScannedTime = ahora;
-          procesarQR(code.data.trim());
-        }
-      }
-    }
-
-    requestAnimationFrame(escanearFrame);
   }
 
   // ═══════════════════════════════════════════
