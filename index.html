@@ -703,38 +703,34 @@
 
   async function iniciarCamara() {
     try {
-      codeReader = new ZXing.BrowserQRCodeReader();
+      // Hints para preferir cámara trasera
+      const hints = new Map();
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
 
-      // Obtener lista de cámaras y preferir la trasera
-      const dispositivos = await ZXing.BrowserCodeReader.listVideoInputDevices();
-      let deviceId = undefined;
-
-      // Buscar cámara trasera por nombre
-      const trasera = dispositivos.find(d =>
-        d.label.toLowerCase().includes('back') ||
-        d.label.toLowerCase().includes('rear') ||
-        d.label.toLowerCase().includes('trasera') ||
-        d.label.toLowerCase().includes('environment')
-      );
-      if (trasera) deviceId = trasera.deviceId;
+      codeReader = new ZXing.BrowserQRCodeReader(hints);
 
       const video = document.getElementById('video');
 
-      await codeReader.decodeFromVideoDevice(deviceId, video, (result, err) => {
-        if (result) {
-          const codigo = result.getText().trim();
-          const ahora = Date.now();
-          const esDiferente = codigo !== lastScanned;
-          const hanPasado3s = (ahora - lastScannedTime) > 3000;
+      // decodeFromConstraints — soportado en todas las versiones de ZXing
+      await codeReader.decodeFromConstraints(
+        { video: { facingMode: 'environment' } },
+        video,
+        (result, err) => {
+          if (result) {
+            const codigo = result.getText().trim();
+            const ahora = Date.now();
+            const esDiferente = codigo !== lastScanned;
+            const hanPasado3s = (ahora - lastScannedTime) > 3000;
 
-          if (!isProcessing && codigo && (esDiferente || hanPasado3s)) {
-            lastScanned = codigo;
-            lastScannedTime = ahora;
-            procesarQR(codigo);
+            if (!isProcessing && codigo && (esDiferente || hanPasado3s)) {
+              lastScanned = codigo;
+              lastScannedTime = ahora;
+              procesarQR(codigo);
+            }
           }
+          // err es normal cuando no hay QR en frame — ignorar
         }
-        // err es normal cuando no hay QR en frame — no hacer nada
-      });
+      );
 
     } catch (err) {
       alert('No se pudo acceder a la cámara.\n\nAsegúrate de permitir el acceso a la cámara cuando el navegador lo solicite.\n\nError: ' + err.message);
